@@ -47,6 +47,7 @@ EOF
 }
 
 log() { printf '[INFO] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*" >&2; }
 fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
 while [[ $# -gt 0 ]]; do
@@ -119,7 +120,7 @@ install_packages() {
   if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update
+      apt-get update || warn "apt-get update 失败，可能是某个软件源失效；继续尝试安装依赖。"
       apt-get install -y curl tar python3 ca-certificates
     elif command -v yum >/dev/null 2>&1; then
       yum install -y curl tar python3 ca-certificates
