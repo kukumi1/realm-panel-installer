@@ -14,11 +14,20 @@ INSTALL_DIR="/opt/realm-panel"
 PANEL_CONFIG_DIR="/etc/realm-panel"
 REALM_DIR="/opt/realm"
 REALM_CONFIG_DIR="/etc/realm"
+PANEL_PORT_SET=0
+LISTEN_PORT_SET=0
+REMOTE_HOST_SET=0
+REMOTE_PORT_SET=0
+PUBLIC_PANEL_PORT_SET=0
+PUBLIC_FORWARD_PORT_SET=0
 
 usage() {
   cat <<'EOF'
 Usage:
   bash install.sh [options]
+
+If you run this script in an interactive terminal, missing values are prompted.
+Press Enter to accept the shown default.
 
 Options:
   --panel-port PORT          Internal web panel port. Default: 50002
@@ -42,18 +51,56 @@ fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --panel-port) PANEL_PORT="${2:?}"; shift 2 ;;
-    --listen-port) LISTEN_PORT="${2:?}"; shift 2 ;;
-    --remote-host) REMOTE_HOST="${2:?}"; shift 2 ;;
-    --remote-port) REMOTE_PORT="${2:?}"; shift 2 ;;
+    --panel-port) PANEL_PORT="${2:?}"; PANEL_PORT_SET=1; shift 2 ;;
+    --listen-port) LISTEN_PORT="${2:?}"; LISTEN_PORT_SET=1; shift 2 ;;
+    --remote-host) REMOTE_HOST="${2:?}"; REMOTE_HOST_SET=1; shift 2 ;;
+    --remote-port) REMOTE_PORT="${2:?}"; REMOTE_PORT_SET=1; shift 2 ;;
     --panel-user) PANEL_USER="${2:?}"; shift 2 ;;
     --panel-password) PANEL_PASSWORD="${2:?}"; shift 2 ;;
-    --public-panel-port) PUBLIC_PANEL_PORT="${2:?}"; shift 2 ;;
-    --public-forward-port) PUBLIC_FORWARD_PORT="${2:?}"; shift 2 ;;
+    --public-panel-port) PUBLIC_PANEL_PORT="${2:?}"; PUBLIC_PANEL_PORT_SET=1; shift 2 ;;
+    --public-forward-port) PUBLIC_FORWARD_PORT="${2:?}"; PUBLIC_FORWARD_PORT_SET=1; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done
+
+prompt_value() {
+  local label=$1
+  local current=$2
+  local answer
+  printf '%s [%s]: ' "$label" "$current" > /dev/tty
+  IFS= read -r answer < /dev/tty || answer=""
+  if [[ -n "$answer" ]]; then
+    printf '%s' "$answer"
+  else
+    printf '%s' "$current"
+  fi
+}
+
+prompt_config() {
+  [[ -t 0 && -r /dev/tty ]] || return 0
+  echo "Interactive configuration. Press Enter to use the default." > /dev/tty
+  if [[ $PANEL_PORT_SET -eq 0 ]]; then
+    PANEL_PORT="$(prompt_value 'Internal web panel port' "$PANEL_PORT")"
+  fi
+  if [[ $LISTEN_PORT_SET -eq 0 ]]; then
+    LISTEN_PORT="$(prompt_value 'Internal forwarding listen port' "$LISTEN_PORT")"
+  fi
+  if [[ $REMOTE_HOST_SET -eq 0 ]]; then
+    REMOTE_HOST="$(prompt_value 'Forward target host/IP' "$REMOTE_HOST")"
+  fi
+  if [[ $REMOTE_PORT_SET -eq 0 ]]; then
+    REMOTE_PORT="$(prompt_value 'Forward target port' "$REMOTE_PORT")"
+  fi
+  if [[ $PUBLIC_PANEL_PORT_SET -eq 0 ]]; then
+    PUBLIC_PANEL_PORT="$(prompt_value 'Public web panel port for output only' "${PUBLIC_PANEL_PORT:-$PANEL_PORT}")"
+  fi
+  if [[ $PUBLIC_FORWARD_PORT_SET -eq 0 ]]; then
+    PUBLIC_FORWARD_PORT="$(prompt_value 'Public forwarding port for output only' "${PUBLIC_FORWARD_PORT:-$LISTEN_PORT}")"
+  fi
+}
+
+prompt_config
 
 [[ $EUID -eq 0 ]] || fail "Run as root."
 [[ "$PANEL_PORT" =~ ^[0-9]+$ ]] || fail "Invalid --panel-port"
