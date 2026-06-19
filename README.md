@@ -7,7 +7,26 @@ One-command installer for a NAT VPS forwarding node. It installs:
 - systemd services for both
 - One default forwarding rule
 
-## Default use
+## Interactive use
+
+Run this on the NAT VPS as root:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Promiscuity1/realm-panel-installer/main/install.sh)
+```
+
+It will ask for:
+
+- internal web panel port
+- internal forwarding listen port
+- target host/IP
+- target port
+- public panel port for final output
+- public forwarding port for final output
+
+Press Enter to accept each default.
+
+## One-line default use
 
 If your NAT panel maps:
 
