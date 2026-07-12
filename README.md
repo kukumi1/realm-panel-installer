@@ -12,7 +12,7 @@
 在 NAT VPS 上用 root 执行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Promiscuity1/realm-panel-installer/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kukumi1/realm-panel-installer/main/install.sh)
 ```
 
 脚本会用中文询问：
@@ -36,7 +36,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Promiscuity1/realm-panel-ins
 在 VPS 上执行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Promiscuity1/realm-panel-installer/main/install.sh) --public-panel-port 50001 --public-forward-port 33507
+bash <(curl -fsSL https://raw.githubusercontent.com/kukumi1/realm-panel-installer/main/install.sh) --public-panel-port 50001 --public-forward-port 33507
 ```
 
 默认规则：
@@ -48,7 +48,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Promiscuity1/realm-panel-ins
 ## 自定义非交互安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Promiscuity1/realm-panel-installer/main/install.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/kukumi1/realm-panel-installer/main/install.sh) \
   --panel-port 50002 \
   --listen-port 33507 \
   --remote-host www.mokuoha.com \
