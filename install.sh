@@ -4,14 +4,10 @@ set -Eeuo pipefail
 REALM_VERSION="v2.9.4"
 GOST_VERSION="v3.2.6"
 PANEL_PORT="50002"
-LISTEN_PORT="33507"
-REMOTE_HOST="www.mokuoha.com"
-REMOTE_PORT="33507"
 PANEL_USER="admin"
 PANEL_PASSWORD=""
 PANEL_BIND="127.0.0.1"
 PUBLIC_PANEL_PORT=""
-PUBLIC_FORWARD_PORT=""
 INSTALL_DIR="/opt/realm-panel"
 PANEL_CONFIG_DIR="/etc/realm-panel"
 REALM_DIR="/opt/realm"
@@ -19,11 +15,7 @@ REALM_CONFIG_DIR="/etc/realm"
 GOST_DIR="/opt/gost"
 GOST_CONFIG_DIR="/etc/gost"
 PANEL_PORT_SET=0
-LISTEN_PORT_SET=0
-REMOTE_HOST_SET=0
-REMOTE_PORT_SET=0
 PUBLIC_PANEL_PORT_SET=0
-PUBLIC_FORWARD_PORT_SET=0
 
 usage() {
   cat <<'EOF'
@@ -33,11 +25,10 @@ Usage:
 如果在交互式终端运行，缺少的配置会逐项询问。
 直接回车使用括号里的默认值。
 
+安装后面板不含任何预置转发规则，所有转发规则请在 Web 面板中自行添加。
+
 参数:
   --panel-port PORT          Web 面板内部端口。默认: 50002
-  --listen-port PORT         Realm 内部监听端口。默认: 33507
-  --remote-host HOST         转发目标地址。默认: www.mokuoha.com
-  --remote-port PORT         转发目标端口。默认: 33507
   --panel-user USER          Web 面板用户名。默认: admin
   --panel-password PASS      Web 面板密码。默认: 随机生成
   --panel-bind ADDR          Web 面板监听地址。默认: 127.0.0.1（仅本机，
@@ -47,12 +38,11 @@ Usage:
   --gost-version VER         GOST 版本。默认: v3.2.6。切换到非内置版本时
                              会跳过 sha256 校验并给出告警。
   --public-panel-port PORT   可选，仅用于最终提示显示公网面板端口。
-  --public-forward-port PORT 可选，仅用于最终提示显示公网转发端口。
   -h, --help                 显示帮助。
 
 示例:
-  bash install.sh --public-panel-port 50001 --public-forward-port 33507
-  bash install.sh --panel-port 51006 --listen-port 21003 --remote-host 85.149.211.29 --remote-port 21003
+  bash install.sh --public-panel-port 50001
+  bash install.sh --panel-port 51006
   bash install.sh --panel-bind 0.0.0.0   # 公网直连（不推荐，仅 Basic Auth）
 EOF
 }
@@ -64,16 +54,12 @@ fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --panel-port) PANEL_PORT="${2:?}"; PANEL_PORT_SET=1; shift 2 ;;
-    --listen-port) LISTEN_PORT="${2:?}"; LISTEN_PORT_SET=1; shift 2 ;;
-    --remote-host) REMOTE_HOST="${2:?}"; REMOTE_HOST_SET=1; shift 2 ;;
-    --remote-port) REMOTE_PORT="${2:?}"; REMOTE_PORT_SET=1; shift 2 ;;
     --panel-user) PANEL_USER="${2:?}"; shift 2 ;;
     --panel-password) PANEL_PASSWORD="${2:?}"; shift 2 ;;
     --panel-bind) PANEL_BIND="${2:?}"; shift 2 ;;
     --realm-version) REALM_VERSION="${2:?}"; shift 2 ;;
     --gost-version) GOST_VERSION="${2:?}"; shift 2 ;;
     --public-panel-port) PUBLIC_PANEL_PORT="${2:?}"; PUBLIC_PANEL_PORT_SET=1; shift 2 ;;
-    --public-forward-port) PUBLIC_FORWARD_PORT="${2:?}"; PUBLIC_FORWARD_PORT_SET=1; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) fail "未知参数: $1" ;;
   esac
@@ -94,24 +80,12 @@ prompt_value() {
 
 prompt_config() {
   [[ -t 0 && -r /dev/tty ]] || return 0
-  echo "交互式配置：直接回车使用默认值。" > /dev/tty
+  echo "交互式配置：直接回车使用默认值。转发规则请安装后在面板中添加。" > /dev/tty
   if [[ $PANEL_PORT_SET -eq 0 ]]; then
     PANEL_PORT="$(prompt_value 'Web 面板内部端口' "$PANEL_PORT")"
   fi
-  if [[ $LISTEN_PORT_SET -eq 0 ]]; then
-    LISTEN_PORT="$(prompt_value '转发内部监听端口' "$LISTEN_PORT")"
-  fi
-  if [[ $REMOTE_HOST_SET -eq 0 ]]; then
-    REMOTE_HOST="$(prompt_value '转发目标地址/IP' "$REMOTE_HOST")"
-  fi
-  if [[ $REMOTE_PORT_SET -eq 0 ]]; then
-    REMOTE_PORT="$(prompt_value '转发目标端口' "$REMOTE_PORT")"
-  fi
   if [[ $PUBLIC_PANEL_PORT_SET -eq 0 ]]; then
     PUBLIC_PANEL_PORT="$(prompt_value 'Web 面板公网端口（仅用于安装完成提示）' "${PUBLIC_PANEL_PORT:-$PANEL_PORT}")"
-  fi
-  if [[ $PUBLIC_FORWARD_PORT_SET -eq 0 ]]; then
-    PUBLIC_FORWARD_PORT="$(prompt_value '转发公网端口（仅用于安装完成提示）' "${PUBLIC_FORWARD_PORT:-$LISTEN_PORT}")"
   fi
 }
 
@@ -119,8 +93,6 @@ prompt_config
 
 [[ $EUID -eq 0 ]] || fail "请使用 root 用户运行。"
 [[ "$PANEL_PORT" =~ ^[0-9]+$ ]] || fail "--panel-port 无效"
-[[ "$LISTEN_PORT" =~ ^[0-9]+$ ]] || fail "--listen-port 无效"
-[[ "$REMOTE_PORT" =~ ^[0-9]+$ ]] || fail "--remote-port 无效"
 [[ "$PANEL_BIND" =~ ^[0-9A-Fa-f.:]+$ ]] || fail "--panel-bind 无效"
 [[ "$REALM_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--realm-version 无效（形如 v2.9.4）"
 [[ "$GOST_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--gost-version 无效（形如 v3.2.6）"
@@ -286,22 +258,85 @@ EOF
 write_initial_rules() {
   mkdir -p "$PANEL_CONFIG_DIR"
   [[ -f "$PANEL_CONFIG_DIR/rules.json" ]] && return 0
-  local id
-  id="$(tr -dc 'a-f0-9' </dev/urandom | head -c 8)"
-  cat > "$PANEL_CONFIG_DIR/rules.json" <<EOF
-[
-  {
-    "id": "${id}",
-    "backend": "realm",
-    "listen_port": ${LISTEN_PORT},
-    "remote_host": "${REMOTE_HOST}",
-    "remote_port": ${REMOTE_PORT},
-    "udp": true,
-    "note": "",
-    "enabled": true
-  }
-]
-EOF
+  if [[ -f "$REALM_CONFIG_DIR/config.toml" ]] && migrate_legacy_rules; then
+    return 0
+  fi
+  printf '[]\n' > "$PANEL_CONFIG_DIR/rules.json"
+}
+
+migrate_legacy_rules() {
+  REALM_CONFIG_TOML="$REALM_CONFIG_DIR/config.toml" \
+  RULES_JSON="$PANEL_CONFIG_DIR/rules.json" \
+  python3 - <<'PYMIGRATE'
+import base64, json, os, re, secrets, sys
+
+config_path = os.environ["REALM_CONFIG_TOML"]
+rules_path = os.environ["RULES_JSON"]
+
+try:
+    with open(config_path, encoding="utf-8") as f:
+        lines = f.readlines()
+except OSError:
+    sys.exit(1)
+
+endpoints, current = [], None
+for raw in lines:
+    line = raw.strip()
+    if line == "[[endpoints]]":
+        if current:
+            endpoints.append(current)
+        current = {"udp": True, "note": ""}
+        continue
+    if current is not None and line.startswith("# note-b64 ="):
+        try:
+            current["note"] = base64.b64decode(line.split("=", 1)[1].strip()).decode("utf-8")
+        except Exception:
+            current["note"] = ""
+        continue
+    if current is None or not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+    if key in ("listen", "remote"):
+        current[key] = value.strip('"')
+    elif key == "network":
+        current["udp"] = "use_udp = false" not in value.lower()
+if current:
+    endpoints.append(current)
+
+rules = []
+for e in endpoints:
+    if "listen" not in e or "remote" not in e:
+        continue
+    try:
+        listen_port = int(e["listen"].rsplit(":", 1)[-1])
+        remote_host, _, remote_port = e["remote"].rpartition(":")
+        remote_port = int(remote_port)
+    except (ValueError, IndexError):
+        continue
+    if not remote_host:
+        continue
+    rules.append({
+        "id": secrets.token_hex(4),
+        "backend": "realm",
+        "listen_port": listen_port,
+        "remote_host": remote_host,
+        "remote_port": remote_port,
+        "udp": e.get("udp", True),
+        "note": e.get("note", ""),
+        "enabled": True,
+    })
+
+if not rules:
+    sys.exit(1)
+
+tmp = rules_path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(rules, f, ensure_ascii=False, indent=2)
+os.replace(tmp, rules_path)
+print("migrated %d rule(s)" % len(rules), file=sys.stderr)
+PYMIGRATE
 }
 
 write_realm_service() {
@@ -757,9 +792,9 @@ class Handler(BaseHTTPRequestHandler):
             '<div><a href="/logs?unit=realm">Realm 日志</a> · <a href="/logs?unit=gost">GOST 日志</a></div></div>'
             '<section id="add"><h2>新增转发</h2><form method="post" action="/add" class="grid">'
             '<label>转发后端<select name="backend">%s</select></label>'
-            '<label>本地监听端口<input name="listen_port" placeholder="33507" required pattern="[0-9]+" inputmode="numeric"></label>'
-            '<label>目标地址<input name="remote_host" placeholder="www.mokuoha.com" required></label>'
-            '<label>目标端口<input name="remote_port" placeholder="33507" required pattern="[0-9]+" inputmode="numeric"></label>'
+            '<label>本地监听端口<input name="listen_port" placeholder="例如 10000" required pattern="[0-9]+" inputmode="numeric"></label>'
+            '<label>目标地址<input name="remote_host" placeholder="example.com 或 1.2.3.4" required></label>'
+            '<label>目标端口<input name="remote_port" placeholder="例如 443" required pattern="[0-9]+" inputmode="numeric"></label>'
             '<label>备注（可选）<input name="note" maxlength="40" placeholder="用途说明"></label>'
             '<label class="check"><input type="checkbox" name="udp" value="1" checked>转发 UDP</label>'
             '<button>新增并应用</button></form></section>'
@@ -949,7 +984,6 @@ EOF
 
 main() {
   check_port_free "$PANEL_PORT" "Web 面板"
-  check_port_free "$LISTEN_PORT" "转发监听"
   install_packages
   install_realm
   install_gost
@@ -988,12 +1022,8 @@ EOF
   fi
   cat <<EOF
 
-默认转发规则（Realm 后端）:
-  公网入口: ${ip}:${PUBLIC_FORWARD_PORT:-$LISTEN_PORT}
-  内部监听: 0.0.0.0:${LISTEN_PORT}
-  目标: ${REMOTE_HOST}:${REMOTE_PORT}
-
-支持的转发后端: Realm / socat / GOST（在面板中逐条选择）
+转发规则: 面板当前不含任何预置规则，请登录 Web 面板自行添加。
+支持的转发后端: Realm / socat / GOST / nftables（在面板中逐条选择）
 
 服务:
   systemctl status realm-panel   # 面板本体
