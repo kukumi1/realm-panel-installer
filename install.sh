@@ -6,7 +6,7 @@ GOST_VERSION="v3.2.6"
 PANEL_PORT="50002"
 PANEL_USER="admin"
 PANEL_PASSWORD=""
-PANEL_BIND="127.0.0.1"
+PANEL_BIND="0.0.0.0"
 PUBLIC_PANEL_PORT=""
 INSTALL_DIR="/opt/realm-panel"
 PANEL_CONFIG_DIR="/etc/realm-panel"
@@ -31,8 +31,8 @@ Usage:
   --panel-port PORT          Web 面板内部端口。默认: 50002
   --panel-user USER          Web 面板用户名。默认: admin
   --panel-password PASS      Web 面板密码。默认: 随机生成
-  --panel-bind ADDR          Web 面板监听地址。默认: 127.0.0.1（仅本机，
-                             通过 SSH 隧道访问）。如需公网直连传 0.0.0.0。
+  --panel-bind ADDR          Web 面板监听地址。默认: 0.0.0.0（公网直连，
+                             http://公网IP:端口 访问）。如需仅本机传 127.0.0.1。
   --realm-version VER        Realm 版本。默认: v2.9.4。切换到非内置版本时
                              会跳过 sha256 校验并给出告警。
   --gost-version VER         GOST 版本。默认: v3.2.6。切换到非内置版本时
@@ -43,7 +43,7 @@ Usage:
 示例:
   bash install.sh --public-panel-port 50001
   bash install.sh --panel-port 51006
-  bash install.sh --panel-bind 0.0.0.0   # 公网直连（不推荐，仅 Basic Auth）
+  bash install.sh --panel-bind 127.0.0.1 # 仅本机，通过 SSH 隧道访问
 EOF
 }
 
@@ -1016,8 +1016,8 @@ EOF
 EOF
   else
     cat <<EOF
-  访问方式: http://${ip}:${PUBLIC_PANEL_PORT:-$PANEL_PORT}
-  注意: 面板对公网开放，仅有 Basic Auth 明文保护，建议改用 127.0.0.1 + SSH 隧道。
+  访问方式: 浏览器打开 http://${ip}:${PUBLIC_PANEL_PORT:-$PANEL_PORT}
+  注意: 面板对公网开放，仅有 Basic Auth 保护，请设置强密码并注意端口安全。
 EOF
   fi
   cat <<EOF

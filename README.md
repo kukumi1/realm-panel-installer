@@ -11,11 +11,11 @@
 
 ## 安全说明
 
-Web 面板默认只监听 `127.0.0.1`，不对公网开放，通过 SSH 隧道访问（见下文）。
+Web 面板默认监听 `0.0.0.0`，公网直连，用浏览器打开 `http://公网IP:端口` 即可访问。
 
 - 面板密码以 PBKDF2-SHA256 加盐哈希存储，配置文件里不保存明文。
 - Basic Auth 使用常量时间比较，并对失败登录做限速。
-- 如需公网直连（不推荐，仅 Basic Auth + 明文 HTTP），可传 `--panel-bind 0.0.0.0`。
+- 公网直连仅有 Basic Auth + 明文 HTTP 保护，请务必设置强密码。如需更安全，可传 `--panel-bind 127.0.0.1` 改用 SSH 隧道访问。
 
 ## 交互式安装
 
@@ -27,17 +27,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kukumi1/realm-panel-installe
 
 脚本会用中文询问面板端口等配置，直接回车使用默认值。安装会装好 realm、gost、socat、nftables 四种后端，但**不创建任何预置转发规则**，所有转发规则请安装后在 Web 面板中自行添加。
 
-## 访问 Web 面板（SSH 隧道）
+## 访问 Web 面板
 
-面板默认只听本机，从你的电脑建立 SSH 隧道后用浏览器访问：
+面板默认公网直连。浏览器打开 `http://<VPS公网IP>:50002`（`50002` 为面板端口，可用 `--panel-port` 修改），用安装完成时显示的用户名/密码登录。
+
+如果 NAT VPS 把外部端口映射到内部面板端口，请用映射后的外部端口访问。
+
+如需仅本机监听 + SSH 隧道访问，安装时传 `--panel-bind 127.0.0.1`，然后：
 
 ```bash
 ssh -L 8080:127.0.0.1:50002 root@<VPS地址>
 ```
 
-然后浏览器打开 `http://127.0.0.1:8080`，用安装完成时显示的用户名/密码登录。
-
-其中 `50002` 是面板内部端口（`--panel-port`），`8080` 是本地任意空闲端口。
+浏览器打开 `http://127.0.0.1:8080` 即可。
 
 ## 一行命令默认安装
 
@@ -65,7 +67,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kukumi1/realm-panel-installe
 --panel-port PORT          Web 面板内部端口。默认: 50002
 --panel-user USER          Web 面板用户名。默认: admin
 --panel-password PASS      Web 面板密码。默认: 随机生成
---panel-bind ADDR          Web 面板监听地址。默认: 127.0.0.1
+--panel-bind ADDR          Web 面板监听地址。默认: 0.0.0.0（公网直连）
 --realm-version TAG        Realm 版本。默认: v2.9.4
 --gost-version TAG         GOST 版本。默认: v3.2.6
 --public-panel-port PORT   仅用于安装完成提示显示公网面板端口
