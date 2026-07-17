@@ -76,6 +76,16 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kukumi1/realm-panel-installe
 
 内置 realm v2.9.4 与 gost v3.2.6 的 sha256 校验值；换用其它版本会跳过完整性校验并给出提示。
 
+## 终端管理菜单
+
+安装后在 VPS 上执行 `rp` 打开中文终端管理菜单（`realm-panel` 为兼容别名）：
+
+```bash
+rp
+```
+
+功能：查看面板信息、重置密码（忘记密码时用）、修改端口、切换监听地址、查看转发规则、服务状态、重启、日志、更新、卸载。
+
 ## 常用管理命令
 
 ```bash

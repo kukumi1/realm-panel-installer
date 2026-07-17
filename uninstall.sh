@@ -71,7 +71,7 @@ fi
 log "已清理 nftables 转发表与 FORWARD 放行链。"
 
 rm -rf "$INSTALL_DIR" "$REALM_DIR" "$GOST_DIR"
-rm -f /usr/local/bin/realm-panel
+rm -f /usr/local/bin/rp /usr/local/bin/realm-panel
 log "已移除程序文件与服务。"
 
 rm -f /etc/sysctl.d/99-realm-panel-forward.conf

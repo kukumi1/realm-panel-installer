@@ -1003,7 +1003,7 @@ EOF
 }
 
 write_menu() {
-  cat > /usr/local/bin/realm-panel <<'MENUEOF'
+  cat > /usr/local/bin/rp <<'MENUEOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -1011,12 +1011,12 @@ REPO_RAW="https://raw.githubusercontent.com/kukumi1/realm-panel-installer/main"
 PANEL_CONFIG="/etc/realm-panel/config.json"
 RULES_PATH="/etc/realm-panel/rules.json"
 PANEL_UNIT="/etc/systemd/system/realm-panel.service"
-PANEL_VERSION="2.1"
+PANEL_VERSION="2.2"
 
 C='\033[0m'; B='\033[1m'
 CY='\033[36m'; GR='\033[32m'; YE='\033[33m'; RE='\033[31m'; GY='\033[90m'
 
-[[ $EUID -eq 0 ]] || { printf '%b\n' "${RE}请使用 root 用户运行：sudo realm-panel${C}"; exit 1; }
+[[ $EUID -eq 0 ]] || { printf '%b\n' "${RE}请使用 root 用户运行：sudo rp${C}"; exit 1; }
 
 panel_port() {
   grep -oE 'REALM_PANEL_PORT=[0-9]+' "$PANEL_UNIT" 2>/dev/null | head -n1 | cut -d= -f2 || true
@@ -1257,7 +1257,8 @@ main() {
 
 main
 MENUEOF
-  chmod 0755 /usr/local/bin/realm-panel
+  chmod 0755 /usr/local/bin/rp
+  ln -sf rp /usr/local/bin/realm-panel
 }
 
 main() {
@@ -1290,7 +1291,7 @@ Web 面板:
 EOF
   if [[ $reused -eq 1 ]]; then
     cat <<EOF
-  用户名/密码: 沿用原有配置未改动（忘记密码可运行 realm-panel 选 [2] 重置）。
+  用户名/密码: 沿用原有配置未改动（忘记密码可运行 rp 选 [2] 重置）。
 EOF
   else
     cat <<EOF
@@ -1315,7 +1316,7 @@ EOF
 转发规则: 面板当前不含任何预置规则，请登录 Web 面板自行添加。
 支持的转发后端: Realm / socat / GOST / nftables（在面板中逐条选择）
 
-管理菜单: 在 VPS 上执行 realm-panel 打开终端管理器
+管理菜单: 在 VPS 上执行 rp 打开终端管理器（realm-panel 仍兼容）
           （查看信息 / 重置密码 / 改端口 / 切监听 / 看日志 / 更新 / 卸载）
 
 服务:
