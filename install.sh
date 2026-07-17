@@ -16,6 +16,7 @@ GOST_DIR="/opt/gost"
 GOST_CONFIG_DIR="/etc/gost"
 PANEL_PORT_SET=0
 PUBLIC_PANEL_PORT_SET=0
+PANEL_BIND_SET=0
 
 usage() {
   cat <<'EOF'
@@ -56,7 +57,7 @@ while [[ $# -gt 0 ]]; do
     --panel-port) PANEL_PORT="${2:?}"; PANEL_PORT_SET=1; shift 2 ;;
     --panel-user) PANEL_USER="${2:?}"; shift 2 ;;
     --panel-password) PANEL_PASSWORD="${2:?}"; shift 2 ;;
-    --panel-bind) PANEL_BIND="${2:?}"; shift 2 ;;
+    --panel-bind) PANEL_BIND="${2:?}"; PANEL_BIND_SET=1; shift 2 ;;
     --realm-version) REALM_VERSION="${2:?}"; shift 2 ;;
     --gost-version) GOST_VERSION="${2:?}"; shift 2 ;;
     --public-panel-port) PUBLIC_PANEL_PORT="${2:?}"; PUBLIC_PANEL_PORT_SET=1; shift 2 ;;
@@ -89,6 +90,21 @@ prompt_config() {
   fi
 }
 
+detect_existing() {
+  local unit="/etc/systemd/system/realm-panel.service"
+  [[ -f "$unit" ]] || return 0
+  local cur_port cur_bind
+  cur_port="$(grep -oE 'REALM_PANEL_PORT=[0-9]+' "$unit" 2>/dev/null | head -n1 | cut -d= -f2)"
+  cur_bind="$(grep -oE 'REALM_PANEL_BIND=[0-9A-Fa-f.:]+' "$unit" 2>/dev/null | head -n1 | cut -d= -f2)"
+  if [[ $PANEL_PORT_SET -eq 0 && -n "$cur_port" ]]; then
+    PANEL_PORT="$cur_port"
+  fi
+  if [[ $PANEL_BIND_SET -eq 0 && -n "$cur_bind" ]]; then
+    PANEL_BIND="$cur_bind"
+  fi
+}
+
+detect_existing
 prompt_config
 
 [[ $EUID -eq 0 ]] || fail "请使用 root 用户运行。"
@@ -364,6 +380,9 @@ EOF
 
 write_panel() {
   mkdir -p "$INSTALL_DIR" "$PANEL_CONFIG_DIR"
+  if [[ -f "$PANEL_CONFIG_DIR/config.json" ]]; then
+    log "检测到已有面板配置，保留现有用户名与密码。"
+  else
   PANEL_USER="$PANEL_USER" PANEL_PASSWORD="$PANEL_PASSWORD" python3 - "$PANEL_CONFIG_DIR/config.json" <<'PYHASH'
 import hashlib, json, os, sys, secrets
 user = os.environ["PANEL_USER"]
@@ -382,6 +401,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as f:
     json.dump(config, f)
 PYHASH
   chmod 0600 "$PANEL_CONFIG_DIR/config.json"
+  fi
   cat > "$INSTALL_DIR/panel.py" <<'PYEOF'
 #!/usr/bin/env python3
 import base64, hashlib, hmac, html, json, os, re, secrets, socket, subprocess, threading, time
@@ -982,7 +1002,268 @@ WantedBy=multi-user.target
 EOF
 }
 
+write_menu() {
+  cat > /usr/local/bin/realm-panel <<'MENUEOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPO_RAW="https://raw.githubusercontent.com/kukumi1/realm-panel-installer/main"
+PANEL_CONFIG="/etc/realm-panel/config.json"
+RULES_PATH="/etc/realm-panel/rules.json"
+PANEL_UNIT="/etc/systemd/system/realm-panel.service"
+PANEL_VERSION="2.1"
+
+C='\033[0m'; B='\033[1m'
+CY='\033[36m'; GR='\033[32m'; YE='\033[33m'; RE='\033[31m'; GY='\033[90m'
+
+[[ $EUID -eq 0 ]] || { printf '%b\n' "${RE}请使用 root 用户运行：sudo realm-panel${C}"; exit 1; }
+
+panel_port() {
+  grep -oE 'REALM_PANEL_PORT=[0-9]+' "$PANEL_UNIT" 2>/dev/null | head -n1 | cut -d= -f2 || true
+}
+
+panel_bind() {
+  grep -oE 'REALM_PANEL_BIND=[0-9A-Fa-f.:]+' "$PANEL_UNIT" 2>/dev/null | head -n1 | cut -d= -f2 || true
+}
+
+panel_user() {
+  python3 -c 'import json;print(json.load(open("/etc/realm-panel/config.json"))["username"])' 2>/dev/null || true
+}
+
+rule_count() {
+  python3 -c 'import json;print(len(json.load(open("/etc/realm-panel/rules.json"))))' 2>/dev/null || printf '0'
+}
+
+public_ip() {
+  curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+pause() {
+  printf '\n%b' "${GY}按回车返回菜单...${C}"
+  read -r _ < /dev/tty || true
+}
+
+header() {
+  local port bind user count ip state statecolor
+  port="$(panel_port)"; port="${port:-50002}"
+  bind="$(panel_bind)"; bind="${bind:-0.0.0.0}"
+  user="$(panel_user)"; user="${user:-admin}"
+  count="$(rule_count)"
+  ip="$(public_ip)"; ip="${ip:-<本机IP>}"
+  if systemctl is-active --quiet realm-panel 2>/dev/null; then
+    state="运行中"; statecolor="$GR"
+  else
+    state="已停止"; statecolor="$RE"
+  fi
+  clear 2>/dev/null || true
+  printf '%b' "$CY"
+  cat <<'BANNER'
+ ____            _             ____                  _
+|  _ \ ___  __ _| |_ __ ___   |  _ \ __ _ _ __   ___| |
+| |_) / _ \/ _` | | '_ ` _ \  | |_) / _` | '_ \ / _ \ |
+|  _ <  __/ (_| | | | | | | | |  __/ (_| | | | |  __/ |
+|_| \_\___|\__,_|_|_| |_| |_| |_|   \__,_|_| |_|\___|_|
+BANNER
+  printf '%b' "$C"
+  printf '%b\n' "${GY}Realm 转发面板管理器 · 版本 ${PANEL_VERSION}${C}"
+  printf '\n'
+  printf '%b\n' "面板 ${statecolor}● ${state}${C} ${GY}·${C} 端口 ${B}${port}${C} ${GY}·${C} 监听 ${B}${bind}${C} ${GY}·${C} 规则 ${B}${count}${C}"
+  if [[ "$bind" == "127.0.0.1" || "$bind" == "localhost" ]]; then
+    printf '%b\n' "访问 ${CY}SSH 隧道后 http://127.0.0.1:${port}${C} ${GY}·${C} 用户 ${B}${user}${C}"
+  else
+    printf '%b\n' "访问 ${CY}http://${ip}:${port}${C} ${GY}·${C} 用户 ${B}${user}${C}"
+  fi
+  printf '%b\n' "${GY}────────────────────────────────────────────────────${C}"
+}
+
+menu() {
+  printf '\n%b\n' "${B}${CY}【面板管理】${C}"
+  printf '  %b  %b  %b\n' "${GR}[1]${C} 查看面板信息" "${GR}[2]${C} 重置密码  " "${GR}[3]${C} 修改端口"
+  printf '  %b  %b\n' "${GR}[4]${C} 切换监听地址" "${GR}[5]${C} 转发规则列表"
+  printf '\n%b\n' "${B}${CY}【服务与维护】${C}"
+  printf '  %b  %b  %b\n' "${GR}[6]${C} 服务状态    " "${GR}[7]${C} 重启面板  " "${GR}[8]${C} 查看日志"
+  printf '  %b  %b\n' "${GR}[9]${C} 更新面板    " "${RE}[10]${C} 卸载面板"
+  printf '\n  %b\n' "${GR}[0]${C} 退出管理器"
+  printf '\n%b' "${YE}请选择操作 [0-10]: ${C}"
+}
+
+show_info() {
+  local port bind user ip
+  port="$(panel_port)"; port="${port:-50002}"
+  bind="$(panel_bind)"; bind="${bind:-0.0.0.0}"
+  user="$(panel_user)"; user="${user:-admin}"
+  ip="$(public_ip)"; ip="${ip:-<本机IP>}"
+  printf '\n%b\n' "${B}面板信息${C}"
+  printf '  用户名  : %b\n' "${B}${user}${C}"
+  printf '  监听地址: %s\n' "$bind"
+  printf '  端口    : %s\n' "$port"
+  if [[ "$bind" == "127.0.0.1" || "$bind" == "localhost" ]]; then
+    printf '  访问方式: 面板仅监听本机，请用 SSH 隧道从本地访问：\n'
+    printf '    ssh -N -L %s:127.0.0.1:%s root@%s\n' "$port" "$port" "$ip"
+    printf '    然后浏览器打开 http://127.0.0.1:%s\n' "$port"
+  else
+    printf '  访问地址: %b\n' "${CY}http://${ip}:${port}${C}"
+  fi
+  printf '  密码    : %s\n' "已加密存储，无法查看原文；忘记请用 [2] 重置。"
+}
+
+reset_password() {
+  [[ -f "$PANEL_CONFIG" ]] || { printf '%b\n' "${RE}未找到面板配置，面板可能未安装。${C}"; return; }
+  local p1 p2
+  printf '输入新密码: '; IFS= read -rs p1 < /dev/tty; printf '\n'
+  printf '再次输入  : '; IFS= read -rs p2 < /dev/tty; printf '\n'
+  [[ -n "$p1" ]] || { printf '%b\n' "${RE}密码不能为空。${C}"; return; }
+  [[ "$p1" == "$p2" ]] || { printf '%b\n' "${RE}两次输入不一致。${C}"; return; }
+  NEWPASS="$p1" python3 - <<'PY'
+import hashlib, json, os, secrets
+path = "/etc/realm-panel/config.json"
+with open(path, encoding="utf-8") as f:
+    cfg = json.load(f)
+salt = secrets.token_bytes(16)
+iterations = 200000
+digest = hashlib.pbkdf2_hmac("sha256", os.environ["NEWPASS"].encode(), salt, iterations)
+cfg.update(algorithm="pbkdf2_sha256", iterations=iterations, salt=salt.hex(), hash=digest.hex())
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(cfg, f)
+os.replace(tmp, path)
+os.chmod(path, 0o600)
+PY
+  systemctl restart realm-panel 2>/dev/null || true
+  printf '%b\n' "${GR}密码已重置，面板已重启。用新密码登录即可。${C}"
+}
+
+change_port() {
+  [[ -f "$PANEL_UNIT" ]] || { printf '%b\n' "${RE}未找到面板服务，面板可能未安装。${C}"; return; }
+  local np
+  printf '输入新端口 [1-65535]: '; IFS= read -r np < /dev/tty
+  [[ "$np" =~ ^[0-9]+$ ]] && (( np >= 1 && np <= 65535 )) || { printf '%b\n' "${RE}端口无效。${C}"; return; }
+  if command -v ss >/dev/null 2>&1 && ss -Hltn "sport = :${np}" 2>/dev/null | grep -q .; then
+    printf '%b\n' "${RE}端口 ${np} 已被占用，请换一个。${C}"; return
+  fi
+  sed -i "s/REALM_PANEL_PORT=[0-9]\+/REALM_PANEL_PORT=${np}/" "$PANEL_UNIT"
+  systemctl daemon-reload
+  systemctl restart realm-panel 2>/dev/null || true
+  printf '%b\n' "${GR}端口已改为 ${np}，面板已重启。${C}"
+}
+
+change_bind() {
+  [[ -f "$PANEL_UNIT" ]] || { printf '%b\n' "${RE}未找到面板服务，面板可能未安装。${C}"; return; }
+  printf '\n  %b 公网直连 (0.0.0.0)\n' "${GR}[1]${C}"
+  printf '  %b 仅本机 + SSH 隧道 (127.0.0.1)\n' "${GR}[2]${C}"
+  local sel nb
+  printf '选择 [1-2]: '; IFS= read -r sel < /dev/tty
+  case "$sel" in
+    1) nb="0.0.0.0" ;;
+    2) nb="127.0.0.1" ;;
+    *) printf '%b\n' "${RE}已取消。${C}"; return ;;
+  esac
+  sed -i "s/REALM_PANEL_BIND=[0-9A-Fa-f.:]\+/REALM_PANEL_BIND=${nb}/" "$PANEL_UNIT"
+  systemctl daemon-reload
+  systemctl restart realm-panel 2>/dev/null || true
+  printf '%b\n' "${GR}监听地址已改为 ${nb}，面板已重启。${C}"
+}
+
+list_rules() {
+  python3 - <<'PY'
+import json
+try:
+    with open("/etc/realm-panel/rules.json", encoding="utf-8") as f:
+        rules = json.load(f)
+except Exception:
+    rules = []
+if not rules:
+    print("\n暂无转发规则，请登录 Web 面板添加。")
+    raise SystemExit
+labels = {"realm": "Realm", "socat": "socat", "gost": "GOST", "nftables": "nftables"}
+print("\n%-3s %-9s %-7s %-26s %-4s %-5s %s" % ("#", "后端", "本地", "目标", "UDP", "状态", "备注"))
+print("-" * 68)
+for i, r in enumerate(rules, 1):
+    target = "%s:%s" % (r.get("remote_host", "?"), r.get("remote_port", "?"))
+    print("%-3d %-9s %-7s %-26s %-4s %-5s %s" % (
+        i,
+        labels.get(r.get("backend"), r.get("backend", "?")),
+        r.get("listen_port", "?"),
+        target,
+        "是" if r.get("udp", True) else "否",
+        "启用" if r.get("enabled", True) else "停用",
+        r.get("note", ""),
+    ))
+PY
+}
+
+service_status() {
+  systemctl status realm-panel --no-pager 2>&1 | head -n 15 || true
+}
+
+restart_panel() {
+  systemctl restart realm-panel 2>/dev/null || true
+  if systemctl is-active --quiet realm-panel 2>/dev/null; then
+    printf '%b\n' "${GR}面板已重启并正常运行。${C}"
+  else
+    printf '%b\n' "${RE}面板重启后未处于运行状态，请用 [6] 查看状态。${C}"
+  fi
+}
+
+view_logs() {
+  journalctl -u realm-panel -n 50 --no-pager 2>&1 || true
+}
+
+update_panel() {
+  printf '%b\n' "${YE}将从 GitHub 拉取最新安装脚本并重装（保留现有密码与规则）。${C}"
+  printf '确认更新？[y/N]: '; local a; IFS= read -r a < /dev/tty
+  [[ "$a" == "y" || "$a" == "Y" ]] || { printf '%b\n' "已取消。"; return; }
+  bash <(curl -fsSL "${REPO_RAW}/install.sh")
+}
+
+uninstall_panel() {
+  printf '%b\n' "${RE}卸载面板${C}"
+  printf '  %b 保留配置卸载（重装可沿用密码/规则）\n' "${GR}[1]${C}"
+  printf '  %b 彻底删除（含配置目录）\n' "${RE}[2]${C}"
+  printf '  回车取消\n'
+  local sel; printf '选择: '; IFS= read -r sel < /dev/tty
+  case "$sel" in
+    1) bash <(curl -fsSL "${REPO_RAW}/uninstall.sh") ;;
+    2) bash <(curl -fsSL "${REPO_RAW}/uninstall.sh") --purge ;;
+    *) printf '%b\n' "已取消。"; return ;;
+  esac
+  printf '%b\n' "${GR}卸载完成，管理器退出。${C}"
+  exit 0
+}
+
 main() {
+  local choice
+  while true; do
+    header
+    menu
+    IFS= read -r choice < /dev/tty || exit 0
+    case "$choice" in
+      1) show_info ;;
+      2) reset_password ;;
+      3) change_port ;;
+      4) change_bind ;;
+      5) list_rules ;;
+      6) service_status ;;
+      7) restart_panel ;;
+      8) view_logs ;;
+      9) update_panel ;;
+      10) uninstall_panel ;;
+      0) exit 0 ;;
+      *) printf '%b\n' "${RE}无效选择。${C}" ;;
+    esac
+    pause
+  done
+}
+
+main
+MENUEOF
+  chmod 0755 /usr/local/bin/realm-panel
+}
+
+main() {
+  local reused=0
+  [[ -f "$PANEL_CONFIG_DIR/config.json" ]] && reused=1
+  systemctl stop realm-panel 2>/dev/null || true
   check_port_free "$PANEL_PORT" "Web 面板"
   install_packages
   install_realm
@@ -992,6 +1273,7 @@ main() {
   write_gost_service
   write_panel
   write_panel_service
+  write_menu
   systemctl daemon-reload
   systemctl enable realm-panel
   systemctl restart realm-panel
@@ -1005,9 +1287,17 @@ main() {
 
 Web 面板:
   监听: ${PANEL_BIND}:${PANEL_PORT}
+EOF
+  if [[ $reused -eq 1 ]]; then
+    cat <<EOF
+  用户名/密码: 沿用原有配置未改动（忘记密码可运行 realm-panel 选 [2] 重置）。
+EOF
+  else
+    cat <<EOF
   用户名: ${PANEL_USER}
   密码: ${PANEL_PASSWORD}
 EOF
+  fi
   if [[ "$PANEL_BIND" == "127.0.0.1" || "$PANEL_BIND" == "localhost" ]]; then
     cat <<EOF
   访问方式: 面板仅监听本机，请用 SSH 隧道从本地访问：
@@ -1024,6 +1314,9 @@ EOF
 
 转发规则: 面板当前不含任何预置规则，请登录 Web 面板自行添加。
 支持的转发后端: Realm / socat / GOST / nftables（在面板中逐条选择）
+
+管理菜单: 在 VPS 上执行 realm-panel 打开终端管理器
+          （查看信息 / 重置密码 / 改端口 / 切监听 / 看日志 / 更新 / 卸载）
 
 服务:
   systemctl status realm-panel   # 面板本体
